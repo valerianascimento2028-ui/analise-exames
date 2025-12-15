@@ -2,14 +2,13 @@ import streamlit as st
 import pdfplumber
 import re
 
-st.set_page_config(page_title="Extrator de Exames", layout="centered")
+st.set_page_config(page_title="Resumo automático de exames", layout="centered")
 
-st.title("🧪 Extrator de dados de exames laboratoriais")
-st.write("Envie o PDF para extrair os valores dos exames.")
+st.title("🧪 Resumo automático de exames laboratoriais")
+st.write("Envie o PDF do exame para gerar um resumo em texto único.")
 
 pdf = st.file_uploader("Enviar PDF do exame", type=["pdf"])
 
-# Dicionário de exames: nome no PDF → saída padronizada
 EXAMES = {
     "HEMOGLOBINA": ("Hb", "g/dL"),
     "HEMATÓCRITO": ("Ht", "%"),
@@ -51,22 +50,22 @@ if pdf:
                 linhas = texto.upper().split("\n")
 
                 for linha in linhas:
-                    for chave, (nome_saida, unidade) in EXAMES.items():
+                    for chave, (nome, unidade) in EXAMES.items():
                         if chave in linha:
-                            # captura números ou positivo/negativo
                             numero = re.search(r"\d+,\d+|\d+\.\d+|\d+", linha)
-                            positivo_negativo = re.search(r"POSITIVO|NEGATIVO|REAGENTE|NÃO REAGENTE", linha)
+                            status = re.search(r"POSITIVO|NEGATIVO|REAGENTE|NÃO REAGENTE", linha)
 
                             if numero:
                                 valor = numero.group()
-                                resultados.append(f"{nome_saida} {valor} {unidade}".strip())
+                                resultados.append(f"{nome} {valor} {unidade}".strip())
 
-                            elif positivo_negativo:
-                                resultados.append(f"{nome_saida}: {positivo_negativo.group().capitalize()}")
+                            elif status:
+                                resultados.append(f"{nome} {status.group().capitalize()}")
 
     if resultados:
-        st.subheader("📄 Dados extraídos")
-        for item in sorted(set(resultados)):
-            st.code(item)
+        resumo = " | ".join(sorted(set(resultados)))
+
+        st.subheader("📄 Resumo automático")
+        st.code(resumo)
     else:
         st.warning("Nenhum exame reconhecido no PDF.")
