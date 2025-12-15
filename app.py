@@ -1,104 +1,78 @@
-import streamlit as st
 import pdfplumber
 import re
-from collections import OrderedDict
+import os
 
-st.set_page_config(page_title="Resumo clínico automático", layout="centered")
+def extrair_dados_pdf_para_texto_formatado(caminho_pdf):
+    """
+    Extrai texto de um PDF e o formata no padrão desejado (dados separados por '|').
 
-st.title("🧪 Resumo clínico automático de exames")
-st.write("Envie o PDF do exame para gerar um resumo clínico padronizado.")
+    Args:
+        caminho_pdf (str): O caminho completo para o arquivo PDF.
 
-pdf = st.file_uploader("Enviar PDF do exame", type=["pdf"])
+    Returns:
+        str or None: O texto extraído e formatado ou None em caso de erro.
+    """
+    dados_totais = ""
+    
+    try:
+        # 1. Abre o PDF com pdfplumber
+        with pdfplumber.open(caminho_pdf) as pdf:
+            print(f"✅ PDF '{os.path.basename(caminho_pdf)}' aberto com sucesso.")
+            
+            # 2. Itera por cada página do PDF
+            for pagina in pdf.pages:
+                # Extrai o texto da página
+                texto_pagina = pagina.extract_text()
+                
+                if texto_pagina:
+                    dados_totais += texto_pagina + "\n"
+        
+        # 3. Limpeza e Formatação do Texto
+        
+        # Remover múltiplas quebras de linha e espaços desnecessários
+        # Substitui quebras de linha/retorno de carro por um espaço
+        texto_limpo = dados_totais.replace('\n', ' ').replace('\r', ' ')
+        
+        # Substitui múltiplos espaços por um único espaço
+        texto_limpo = re.sub(r'\s+', ' ', texto_limpo).strip()
+        
+        # 4. Formatação Final: Substitui espaços por '|'
+        # Nota: Esta etapa é simplificada. Para extrações precisas de exames
+        # com cabeçalhos e valores, seria necessário uma lógica de parsing mais avançada.
+        texto_formatado = texto_limpo.replace(' ', '|')
+        
+        return texto_formatado
+        
+    except FileNotFoundError:
+        print(f"❌ Erro: Arquivo não encontrado no caminho: {caminho_pdf}")
+        return None
+    except Exception as e:
+        print(f"❌ Ocorreu um erro durante a extração do PDF: {e}")
+        return None
 
-# Ordem clínica padrão
-ORDEM_CLINICA = [
-    "Hb", "Ht", "Leu", "Plq",
-    "Glicose",
-    "Creatinina",
-    "Colesterol total", "LDL", "HDL", "Triglicérides",
-    "TGO (AST)", "TGP (ALT)",
-    "Ferritina", "Vitamina B12", "Ácido fólico", "Vitamina D",
-    "TSH ultra-sensível", "T4 livre",
-    "HBsAg", "Anti-HCV"
-]
+# --- Exemplo de Uso ---
+if __name__ == "__main__":
+    
+    # 1. Solicita o caminho do arquivo ao usuário
+    # Altere o caminho abaixo para o local do seu arquivo de teste
+    caminho_arquivo = input("Por favor, digite o caminho completo do arquivo PDF do exame: ").strip()
 
-# Dicionário de reconhecimento
-EXAMES = {
-    "HEMOGLOBINA": "Hb",
-    "HEMATÓCRITO": "Ht",
-    "LEUCÓCITOS": "Leu",
-    "PLAQUETAS": "Plq",
-
-    "GLICOSE": "Glicose",
-    "CREATININA": "Creatinina",
-
-    "COLESTEROL TOTAL": "Colesterol total",
-    "LDL": "LDL",
-    "HDL": "HDL",
-    "TRIGLICER": "Triglicérides",
-
-    "TGO": "TGO (AST)",
-    "AST": "TGO (AST)",
-    "TGP": "TGP (ALT)",
-    "ALT": "TGP (ALT)",
-
-    "FERRITINA": "Ferritina",
-    "VITAMINA B12": "Vitamina B12",
-    "ÁCIDO FÓLICO": "Ácido fólico",
-    "VITAMINA D": "Vitamina D",
-
-    "TSH": "TSH ultra-sensível",
-    "T4 LIVRE": "T4 livre",
-
-    "HBSAG": "HBsAg",
-    "ANTI-HCV": "Anti-HCV"
-}
-
-# Regex para valor + unidade
-PADRAO_VALOR_UNIDADE = re.compile(
-    r"(\d+[.,]?\d*)\s*(g/dL|mg/dL|pg/mL|ng/mL|µUI/mL|UI/L|U/L|%|mm³)?",
-    re.IGNORECASE
-)
-
-STATUS_REGEX = re.compile(r"POSITIVO|NEGATIVO|REAGENTE|NÃO REAGENTE", re.IGNORECASE)
-
-if pdf:
-    encontrados = {}
-
-    with pdfplumber.open(pdf) as arquivo:
-        for pagina in arquivo.pages:
-            texto = pagina.extract_text()
-            if not texto:
-                continue
-
-            linhas = texto.upper().split("\n")
-
-            for linha in linhas:
-                for chave, nome_padrao in EXAMES.items():
-                    if chave in linha and nome_padrao not in encontrados:
-
-                        status = STATUS_REGEX.search(linha)
-                        valor_unidade = PADRAO_VALOR_UNIDADE.search(linha)
-
-                        if status:
-                            encontrados[nome_padrao] = status.group().capitalize()
-
-                        elif valor_unidade:
-                            valor = valor_unidade.group(1).replace(",", ".")
-                            unidade = valor_unidade.group(2) or ""
-                            encontrados[nome_padrao] = f"{valor} {unidade}".strip()
-
-    if encontrados:
-        resumo_ordenado = []
-
-        for exame in ORDEM_CLINICA:
-            if exame in encontrados:
-                resumo_ordenado.append(f"{exame} {encontrados[exame]}")
-
-        resumo_final = " | ".join(resumo_ordenado)
-
-        st.subheader("📄 Resumo clínico")
-        st.code(resumo_final)
-
+    if not caminho_arquivo:
+        print("Caminho do arquivo não pode ser vazio. Saindo.")
     else:
-        st.warning("Nenhum exame reconhecido no PDF.")
+        # 2. Chama a função de extração
+        resultado = extrair_dados_pdf_para_texto_formatado(caminho_arquivo)
+        
+        # 3. Exibe o resultado
+        if resultado:
+            print("\n--- Resultado Formatado (Dados Separados por '|') ---")
+            print(resultado)
+            
+            # Opcional: Salvar o resultado em um arquivo de texto
+            nome_saida = os.path.splitext(caminho_arquivo)[0] + "_extraido.txt"
+            try:
+                with open(nome_saida, 'w', encoding='utf-8') as f:
+                    f.write(resultado)
+                print(f"\n✨ Dados salvos com sucesso no arquivo: {nome_saida}")
+            except Exception as e:
+                print(f"❌ Erro ao salvar o arquivo de saída: {e}")
