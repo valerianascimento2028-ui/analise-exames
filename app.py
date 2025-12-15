@@ -1,71 +1,104 @@
 import streamlit as st
 import pdfplumber
 import re
+from collections import OrderedDict
 
-st.set_page_config(page_title="Resumo automático de exames", layout="centered")
+st.set_page_config(page_title="Resumo clínico automático", layout="centered")
 
-st.title("🧪 Resumo automático de exames laboratoriais")
-st.write("Envie o PDF do exame para gerar um resumo em texto único.")
+st.title("🧪 Resumo clínico automático de exames")
+st.write("Envie o PDF do exame para gerar um resumo clínico padronizado.")
 
 pdf = st.file_uploader("Enviar PDF do exame", type=["pdf"])
 
+# Ordem clínica padrão
+ORDEM_CLINICA = [
+    "Hb", "Ht", "Leu", "Plq",
+    "Glicose",
+    "Creatinina",
+    "Colesterol total", "LDL", "HDL", "Triglicérides",
+    "TGO (AST)", "TGP (ALT)",
+    "Ferritina", "Vitamina B12", "Ácido fólico", "Vitamina D",
+    "TSH ultra-sensível", "T4 livre",
+    "HBsAg", "Anti-HCV"
+]
+
+# Dicionário de reconhecimento
 EXAMES = {
-    "HEMOGLOBINA": ("Hb", "g/dL"),
-    "HEMATÓCRITO": ("Ht", "%"),
-    "LEUCÓCITOS": ("Leu", "/mm³"),
-    "PLAQUETAS": ("Plq", "/mm³"),
+    "HEMOGLOBINA": "Hb",
+    "HEMATÓCRITO": "Ht",
+    "LEUCÓCITOS": "Leu",
+    "PLAQUETAS": "Plq",
 
-    "FERRITINA": ("Ferritina", "ng/mL"),
-    "ÁCIDO FÓLICO": ("Ácido fólico", "ng/mL"),
-    "VITAMINA B12": ("Vitamina B12", "pg/mL"),
-    "VITAMINA D": ("Vitamina D", "ng/mL"),
+    "GLICOSE": "Glicose",
+    "CREATININA": "Creatinina",
 
-    "CREATININA": ("Creatinina", "mg/dL"),
-    "GLICOSE": ("Glicose", "mg/dL"),
+    "COLESTEROL TOTAL": "Colesterol total",
+    "LDL": "LDL",
+    "HDL": "HDL",
+    "TRIGLICER": "Triglicérides",
 
-    "COLESTEROL TOTAL": ("Colesterol total", "mg/dL"),
-    "LDL": ("LDL", "mg/dL"),
-    "HDL": ("HDL", "mg/dL"),
-    "TRIGLICER": ("Triglicérides", "mg/dL"),
+    "TGO": "TGO (AST)",
+    "AST": "TGO (AST)",
+    "TGP": "TGP (ALT)",
+    "ALT": "TGP (ALT)",
 
-    "TGO": ("TGO (AST)", "U/L"),
-    "AST": ("TGO (AST)", "U/L"),
-    "TGP": ("TGP (ALT)", "U/L"),
-    "ALT": ("TGP (ALT)", "U/L"),
+    "FERRITINA": "Ferritina",
+    "VITAMINA B12": "Vitamina B12",
+    "ÁCIDO FÓLICO": "Ácido fólico",
+    "VITAMINA D": "Vitamina D",
 
-    "TSH": ("TSH ultra-sensível", "µUI/mL"),
-    "T4 LIVRE": ("T4 livre", "ng/dL"),
+    "TSH": "TSH ultra-sensível",
+    "T4 LIVRE": "T4 livre",
 
-    "HBSAG": ("HBsAg", ""),
-    "ANTI-HCV": ("Anti-HCV", "")
+    "HBSAG": "HBsAg",
+    "ANTI-HCV": "Anti-HCV"
 }
 
+# Regex para valor + unidade
+PADRAO_VALOR_UNIDADE = re.compile(
+    r"(\d+[.,]?\d*)\s*(g/dL|mg/dL|pg/mL|ng/mL|µUI/mL|UI/L|U/L|%|mm³)?",
+    re.IGNORECASE
+)
+
+STATUS_REGEX = re.compile(r"POSITIVO|NEGATIVO|REAGENTE|NÃO REAGENTE", re.IGNORECASE)
+
 if pdf:
-    resultados = []
+    encontrados = {}
 
     with pdfplumber.open(pdf) as arquivo:
         for pagina in arquivo.pages:
             texto = pagina.extract_text()
-            if texto:
-                linhas = texto.upper().split("\n")
+            if not texto:
+                continue
 
-                for linha in linhas:
-                    for chave, (nome, unidade) in EXAMES.items():
-                        if chave in linha:
-                            numero = re.search(r"\d+,\d+|\d+\.\d+|\d+", linha)
-                            status = re.search(r"POSITIVO|NEGATIVO|REAGENTE|NÃO REAGENTE", linha)
+            linhas = texto.upper().split("\n")
 
-                            if numero:
-                                valor = numero.group()
-                                resultados.append(f"{nome} {valor} {unidade}".strip())
+            for linha in linhas:
+                for chave, nome_padrao in EXAMES.items():
+                    if chave in linha and nome_padrao not in encontrados:
 
-                            elif status:
-                                resultados.append(f"{nome} {status.group().capitalize()}")
+                        status = STATUS_REGEX.search(linha)
+                        valor_unidade = PADRAO_VALOR_UNIDADE.search(linha)
 
-    if resultados:
-        resumo = " | ".join(sorted(set(resultados)))
+                        if status:
+                            encontrados[nome_padrao] = status.group().capitalize()
 
-        st.subheader("📄 Resumo automático")
-        st.code(resumo)
+                        elif valor_unidade:
+                            valor = valor_unidade.group(1).replace(",", ".")
+                            unidade = valor_unidade.group(2) or ""
+                            encontrados[nome_padrao] = f"{valor} {unidade}".strip()
+
+    if encontrados:
+        resumo_ordenado = []
+
+        for exame in ORDEM_CLINICA:
+            if exame in encontrados:
+                resumo_ordenado.append(f"{exame} {encontrados[exame]}")
+
+        resumo_final = " | ".join(resumo_ordenado)
+
+        st.subheader("📄 Resumo clínico")
+        st.code(resumo_final)
+
     else:
         st.warning("Nenhum exame reconhecido no PDF.")
