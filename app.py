@@ -1,78 +1,126 @@
+import streamlit as st
 import pdfplumber
 import re
-import os
+from collections import OrderedDict
 
-def extrair_dados_pdf_para_texto_formatado(caminho_pdf):
+st.set_page_config(page_title="Resumo clínico automático", layout="centered")
+
+st.title("🧪 Resumo clínico automático de exames")
+st.write("Envie o PDF do exame para gerar um resumo clínico padronizado.")
+
+pdf = st.file_uploader("Enviar PDF do exame", type=["pdf"])
+
+# Ordem clínica padrão
+ORDEM_CLINICA = [
+    "Hb", "Ht", "VCM", "HCM", "RDW", "Leu", "Plq",
+    "Glicose",
+    "Creatinina",
+    "Colesterol total", "LDL", "HDL", "Triglicérides",
+    "TGO (AST)", "TGP (ALT)",
+    "Ferritina", "Vitamina B12", "Ácido fólico", "Vitamina D",
+    "TSH ultra-sensível", "T4 livre",
+    "HBsAg", "Anti-HCV"
+]
+
+# Reconhecimento (sinônimos reais de laudo)
+EXAMES = {
+    "HEMOGLOBINA": "Hb",
+    "HEMATÓCRITO": "Ht",
+    "VCM": "VCM",
+    "HCM": "HCM",
+    "RDW": "RDW",
+    "LEUCÓCITOS": "Leu",
+    "PLAQUETAS": "Plq",
+
+    "GLICOSE": "Glicose",
+    "CREATININA": "Creatinina",
+
+    "COLESTEROL TOTAL": "Colesterol total",
+    "LDL": "LDL",
+    "HDL": "HDL",
+    "TRIGLICER": "Triglicérides",
+
+    "TGO": "TGO (AST)",
+    "AST": "TGO (AST)",
+    "TGP": "TGP (ALT)",
+    "ALT": "TGP (ALT)",
+
+    "FERRITINA": "Ferritina",
+    "VITAMINA B-12": "Vitamina B12",
+    "VITAMINA B12": "Vitamina B12",
+    "ÁCIDO FÓLICO": "Ácido fólico",
+    "VITAMINA D": "Vitamina D",
+
+    "TSH": "TSH ultra-sensível",
+    "T4 LIVRE": "T4 livre",
+
+    "HBSAG": "HBsAg",
+    "ANTI-HCV": "Anti-HCV"
+}
+
+STATUS_REGEX = re.compile(r"POSITIVO|NEGATIVO|REAGENTE|NÃO REAGENTE", re.IGNORECASE)
+
+def extrair_resultado(linha, exame):
     """
-    Extrai texto de um PDF e o formata no padrão desejado (dados separados por '|').
-
-    Args:
-        caminho_pdf (str): O caminho completo para o arquivo PDF.
-
-    Returns:
-        str or None: O texto extraído e formatado ou None em caso de erro.
+    Extrai o valor correto ignorando % quando necessário
+    e priorizando o número após o nome do exame
     """
-    dados_totais = ""
-    
-    try:
-        # 1. Abre o PDF com pdfplumber
-        with pdfplumber.open(caminho_pdf) as pdf:
-            print(f"✅ PDF '{os.path.basename(caminho_pdf)}' aberto com sucesso.")
-            
-            # 2. Itera por cada página do PDF
-            for pagina in pdf.pages:
-                # Extrai o texto da página
-                texto_pagina = pagina.extract_text()
-                
-                if texto_pagina:
-                    dados_totais += texto_pagina + "\n"
-        
-        # 3. Limpeza e Formatação do Texto
-        
-        # Remover múltiplas quebras de linha e espaços desnecessários
-        # Substitui quebras de linha/retorno de carro por um espaço
-        texto_limpo = dados_totais.replace('\n', ' ').replace('\r', ' ')
-        
-        # Substitui múltiplos espaços por um único espaço
-        texto_limpo = re.sub(r'\s+', ' ', texto_limpo).strip()
-        
-        # 4. Formatação Final: Substitui espaços por '|'
-        # Nota: Esta etapa é simplificada. Para extrações precisas de exames
-        # com cabeçalhos e valores, seria necessário uma lógica de parsing mais avançada.
-        texto_formatado = texto_limpo.replace(' ', '|')
-        
-        return texto_formatado
-        
-    except FileNotFoundError:
-        print(f"❌ Erro: Arquivo não encontrado no caminho: {caminho_pdf}")
-        return None
-    except Exception as e:
-        print(f"❌ Ocorreu um erro durante a extração do PDF: {e}")
+    # Remove valores de referência
+    linha = re.sub(r"\(.*?\)", "", linha)
+    linha = linha.replace(",", ".")
+
+    numeros = re.findall(r"\d+\.\d+|\d+", linha)
+
+    if not numeros:
         return None
 
-# --- Exemplo de Uso ---
-if __name__ == "__main__":
-    
-    # 1. Solicita o caminho do arquivo ao usuário
-    # Altere o caminho abaixo para o local do seu arquivo de teste
-    caminho_arquivo = input("Por favor, digite o caminho completo do arquivo PDF do exame: ").strip()
+    # Leucócitos → pega número grande (contagem)
+    if exame == "Leu":
+        for n in numeros:
+            if float(n) > 1000:
+                return n + " /mm³"
 
-    if not caminho_arquivo:
-        print("Caminho do arquivo não pode ser vazio. Saindo.")
+    # Plaquetas
+    if exame == "Plq":
+        return numeros[0] + " /mm³"
+
+    # Percentuais
+    if exame in ["Ht", "RDW"]:
+        return numeros[0] + " %"
+
+    return numeros[0]
+
+if pdf:
+    encontrados = {}
+
+    with pdfplumber.open(pdf) as arquivo:
+        for pagina in arquivo.pages:
+            texto = pagina.extract_text()
+            if not texto:
+                continue
+
+            linhas = texto.upper().split("\n")
+
+            for linha in linhas:
+                for chave, nome in EXAMES.items():
+                    if chave in linha and nome not in encontrados:
+
+                        status = STATUS_REGEX.search(linha)
+                        if status:
+                            encontrados[nome] = status.group().capitalize()
+                            continue
+
+                        valor = extrair_resultado(linha, nome)
+                        if valor:
+                            encontrados[nome] = valor
+
+    if encontrados:
+        resumo = []
+        for exame in ORDEM_CLINICA:
+            if exame in encontrados:
+                resumo.append(f"{exame} {encontrados[exame]}")
+
+        st.subheader("📄 Resumo clínico")
+        st.code(" | ".join(resumo))
     else:
-        # 2. Chama a função de extração
-        resultado = extrair_dados_pdf_para_texto_formatado(caminho_arquivo)
-        
-        # 3. Exibe o resultado
-        if resultado:
-            print("\n--- Resultado Formatado (Dados Separados por '|') ---")
-            print(resultado)
-            
-            # Opcional: Salvar o resultado em um arquivo de texto
-            nome_saida = os.path.splitext(caminho_arquivo)[0] + "_extraido.txt"
-            try:
-                with open(nome_saida, 'w', encoding='utf-8') as f:
-                    f.write(resultado)
-                print(f"\n✨ Dados salvos com sucesso no arquivo: {nome_saida}")
-            except Exception as e:
-                print(f"❌ Erro ao salvar o arquivo de saída: {e}")
+        st.warning("Nenhum exame reconhecido no PDF.")
