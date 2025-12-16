@@ -1,7 +1,6 @@
 import streamlit as st
 import pdfplumber
 import re
-from collections import OrderedDict
 
 st.set_page_config(page_title="Resumo clínico automático", layout="centered")
 
@@ -22,7 +21,7 @@ ORDEM_CLINICA = [
     "HBsAg", "Anti-HCV"
 ]
 
-# Reconhecimento (sinônimos reais de laudo)
+# Reconhecimento de exames
 EXAMES = {
     "HEMOGLOBINA": "Hb",
     "HEMATÓCRITO": "Ht",
@@ -61,30 +60,21 @@ EXAMES = {
 STATUS_REGEX = re.compile(r"POSITIVO|NEGATIVO|REAGENTE|NÃO REAGENTE", re.IGNORECASE)
 
 def extrair_resultado(linha, exame):
-    """
-    Extrai o valor correto ignorando % quando necessário
-    e priorizando o número após o nome do exame
-    """
-    # Remove valores de referência
     linha = re.sub(r"\(.*?\)", "", linha)
     linha = linha.replace(",", ".")
-
     numeros = re.findall(r"\d+\.\d+|\d+", linha)
 
     if not numeros:
         return None
 
-    # Leucócitos → pega número grande (contagem)
     if exame == "Leu":
         for n in numeros:
             if float(n) > 1000:
                 return n + " /mm³"
 
-    # Plaquetas
     if exame == "Plq":
         return numeros[0] + " /mm³"
 
-    # Percentuais
     if exame in ["Ht", "RDW"]:
         return numeros[0] + " %"
 
@@ -115,12 +105,29 @@ if pdf:
                             encontrados[nome] = valor
 
     if encontrados:
-        resumo = []
+        resumo_lista = []
         for exame in ORDEM_CLINICA:
             if exame in encontrados:
-                resumo.append(f"{exame} {encontrados[exame]}")
+                resumo_lista.append(f"{exame} {encontrados[exame]}")
+
+        resumo_final = " | ".join(resumo_lista)
 
         st.subheader("📄 Resumo clínico")
-        st.code(" | ".join(resumo))
+
+        # Caixa de texto para copiar
+        st.text_area(
+            "👉 Copie o resumo abaixo (Ctrl + A → Ctrl + C):",
+            resumo_final,
+            height=150
+        )
+
+        # Botão de download
+        st.download_button(
+            label="📥 Baixar resumo (.txt)",
+            data=resumo_final,
+            file_name="resumo_exames.txt",
+            mime="text/plain"
+        )
+
     else:
         st.warning("Nenhum exame reconhecido no PDF.")
